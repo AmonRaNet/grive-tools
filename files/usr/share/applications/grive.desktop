@@ -1,0 +1,28 @@
+[Desktop Entry]
+Version=1.15 beta
+Name=Google Drive
+Name[pl]=Dysk Google
+GenericName=Google Drive
+X-GNOME-FullName=Google Drive
+X-GNOME-FullName[pl]=Dysk Google
+Comment=Google Drive Client using Grive and Grive Tools
+Comment[pl]=Klient Dysku Google używający Grive i Narzędzi Grive
+Exec=xdg-open "Google Drive"
+Terminal=false
+Icon=/opt/thefanclub/grive-tools/GoogleDrive.png
+Type=Application
+Categories=Utility;
+X-Ayatana-Desktop-Shortcuts=GoogleDriveWeb;GoogleDriveHelp
+
+
+[GoogleDriveWeb Shortcut Group]
+Name=Visit Google Drive on the web
+Name[pl]=Odwiedź Dysk Google w sieci
+Exec=xdg-open https://drive.google.com
+TargetEnvironment=Unity
+
+[GoogleDriveHelp Shortcut Group]
+Name=Help
+Name[pl]=Pomoc
+Exec=xdg-open https://support.google.com/drive
+TargetEnvironment=Unity

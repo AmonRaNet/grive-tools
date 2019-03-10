@@ -1,0 +1,18 @@
+[Desktop Entry]
+Name=Google Drive Indicator
+Name[pl]=Wskaźnik Dysku Google
+Version=1.15
+Name=Google Drive Indicator
+GenericName[pl]=Wskaźnik-Dysku-Google
+X-GNOME-FullName=Google Drive Indicator
+X-GNOME-FullName[pl]=Wskaźnik Dysku Google
+Comment=Ubuntu Google Drive Client with Grive and Grive Tools
+Comment[pl]=Klient Dysku Google dla Ubuntu, używający Grive i Narzędzi Grive
+Type=Application
+Categories=Utility;GTK
+Path=/opt/thefanclub/grive-tools/
+Exec=/opt/thefanclub/grive-tools/grive-indicator 
+Terminal=false
+StartupNotify=true
+Icon=/opt/thefanclub/grive-tools/GoogleDrive.png
+TargetEnvironment=Unity

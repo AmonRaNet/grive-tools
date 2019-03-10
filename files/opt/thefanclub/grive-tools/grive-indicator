@@ -1,0 +1,1003 @@
+#!/usr/bin/env python
+#
+# Grive Indicator
+#
+# Version :  1.15 beta
+#
+# By The Fan Club 2013
+# http://www.thefanclub.co.za
+#
+### BEGIN LICENSE
+# Copyright (c) 2014, The Fan Club <info@thefanclub.co.za>
+# This program is free software: you can redistribute it and/or modify it
+# under the terms of the GNU General Public License version 3, as published
+# by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranties of
+# MERCHANTABILITY, SATISFACTORY QUALITY, or FITNESS FOR A PARTICULAR
+# PURPOSE.  See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along
+# with this program.  If not, see <http://www.gnu.org/licenses/>.
+### END LICENSE
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk
+from gi.repository import Gio
+from gi.repository import GLib
+from gi.repository import AppIndicator3 as appindicator
+from gi.repository import GdkPixbuf
+import os
+import sys
+import subprocess
+import time
+import datetime
+import shutil
+import urllib2
+import webbrowser
+import pyinotify
+import asyncore
+import threading
+import fcntl
+import commands
+import gettext
+import locale
+
+class PTmp(pyinotify.ProcessEvent):
+    def process_IN_CREATE(self, event):
+        if event.name not in excludedFiles:
+          debugPrint("Create: %s" %  os.path.join(event.path, event.name))
+          #writeToFile(streamLog, "Create: %s" %  os.path.join(event.path, event.name), 'a')
+          eventLoop("Create: %s" %  os.path.join(event.path, event.name))
+
+    def process_IN_DELETE(self, event):
+        debugPrint("Remove: %s" %  os.path.join(event.path, event.name))
+        #writeToFile(streamLog, "Remove: %s" %  os.path.join(event.path, event.name), 'a')
+        eventLoop("Remove: %s" %  os.path.join(event.path, event.name))
+
+
+    def process_IN_MODIFY(self, event):
+        if event.name not in excludedFiles:
+          debugPrint("Modify: %s" %  os.path.join(event.path, event.name))
+          #writeToFile(streamLog, "Create: %s" %  os.path.join(event.path, event.name), 'a')
+          eventLoop("Modify: %s" %  os.path.join(event.path, event.name))
+
+
+    def process_IN_MOVED_FROM(self, event):
+        debugPrint("Move: %s" %  os.path.join(event.path, event.name))
+        #writeToFile(streamLog, "Moved: %s" %  os.path.join(event.path, event.name), 'a')
+        eventLoop("Move: %s" %  os.path.join(event.path, event.name))
+
+def stopTimer(timerName):
+    if timerName > 0 :
+      GLib.source_remove(timerName)
+    # CD added return false to stop animation
+    return False
+
+
+def joinTreads():
+    global loop_thread
+    # Join Threads every second for 0.5 sec and relax
+    loop_thread.join(timeout=0.5)
+    return True
+
+def quitApplication(widget, optionName):
+    # Change Icon
+    iconOff()
+    # Remove Timers
+    stopTimer(onMaybeDoneTimer)
+    stopTimer(timerOne)
+    stopTimer(timerAsync)
+    stopTimer(timerInternetAccess)
+    stopTimer(timerConnectAnimation)
+    debugPrint("Timers Stopped")
+
+    # Stop Autosync
+    autoSync('stop')
+    debugPrint("AutoSync Stopped")
+
+    # Stop WatchManager
+    # Below was in not sure if needed because autosync(stop) above does the same job
+    #wm.del_watch(watcherGoogleDrive[googleDriveFolder])
+    debugPrint("Watch Manager Stopped")
+
+    # Join threads
+    #loop_thread.join()
+    #debugPrint("Threads Joined")
+
+    # Close Remaining Threads
+    asyncore.close_all()
+    debugPrint("Async Loop Thread Closed")
+    
+    # unconditional exit - normally sys.exit() but 12.04 has Gtk window exit error
+    os._exit(0)
+
+        
+def startfile(filename):
+    try:
+        os.startfile(filename)
+    except:
+        subprocess.Popen(['xdg-open', filename])
+
+def sendmessage(title, message):
+    if notificationSetting:
+      subprocess.Popen(['notify-send', '-i',  google_drive_icon_path , title, message])
+    return
+
+def folderSize():
+    p1 = subprocess.Popen(['du', '-sb', googleDriveFolder], stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(['cut', '-f1'], stdin=p1.stdout, stdout=subprocess.PIPE)
+    p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+    output = p2.communicate()[0]
+    debugPrint("Folder Size:  %s" % output)
+    return output
+
+def onTimer():
+    # Background monitoring
+    menu_last_sync.set_label(readLastSync("widget", "timer"))
+    return True
+
+def folderSizeChangeDone():
+    sizeNow = 0
+    sizeLater = 1
+    global onMaybeDoneTimer
+
+    # Wait till HD is done every 2 if triggered
+    while sizeNow != sizeLater:
+      sizeNow = folderSize()
+      time.sleep(3)
+      sizeLater = folderSize()
+    debugPrint("No more disc activity detected -------------------- SYNC ?")
+
+    # Sync Now ****
+    syncNow(menu_sync_now, 'Sync Now')
+
+    # Return FALSE so that we stop the timerFolderSize
+    return False
+
+def eventLoop(eventItem):
+    # Get fired on all events
+    global eventItemNow
+    global onMaybeDoneTimer
+    global connectionStatus
+        
+    # Check connectionStatus before reacting to events
+    if connectionStatus:
+      # Start and remove timers as new events come in
+      # to keep resetting timeout to 5 sec till last call
+      # AER Methode 
+      if onMaybeDoneTimer != 0 :
+        GLib.source_remove(onMaybeDoneTimer)
+        debugPrint("Timer Removed :  %s" % onMaybeDoneTimer)
+      onMaybeDoneTimer = GLib.timeout_add(5000, folderSizeChangeDone)
+      debugPrint("New Timer ID: %s" % onMaybeDoneTimer)
+    return
+
+def readLastSync(widget, optionName):
+    # Read last sync time from file
+    global menu_last_sync
+    global logFile
+    # Read Log File
+    try:
+      fp = open(logFile)
+      dtFormat = "%Y-%m-%d %H:%M:%S"
+      dtString = str(fp.read())
+      dtConverted = datetime.datetime.strptime(dtString, dtFormat)
+      # Localise date and time
+      dtLocaleD = locale.nl_langinfo(locale.D_FMT)
+      dtLocaleT = locale.nl_langinfo(locale.T_FMT)
+      dtShow = dtConverted.strftime(dtLocaleD+'  '+dtLocaleT)
+      lastSyncT = (_('Last Sync   ') + str(dtShow))
+      fp.close()
+    except IOError:
+      lastSyncT=_('Sync History Unavailable')
+    except:
+      lastSyncT=_('Sync History Unavailable')
+      raise
+    return lastSyncT
+
+def readLastSyncFinished():
+    # Read last line from Grive last sync log to see if sync is done
+    p1 = subprocess.Popen(['cat', lastSyncLogFile ], stdout=subprocess.PIPE)
+    p2 = subprocess.Popen(['grep', 'Finished'], stdin=p1.stdout, stdout=subprocess.PIPE)
+    p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
+    output = p2.communicate()[0]
+    return output
+
+def writeToFile(fileName,content,flag):
+    try:
+      fp = open(fileName, flag)
+      fp.write(content)
+      fp.close()
+    except IOError:
+      writeError="File Not Saved"
+    except:
+      writeError="File Not Saved"
+      raise
+    return
+
+
+def copyFile(source, destination):
+    try:
+        shutil.copy (source, destination)
+    except:
+        textMessage = "From "+source+" To "+destination
+        debugPrint("File Copy Error %s" % textMessage )
+
+def deleteFile(source):
+    try:
+        os.remove(source)
+    except:
+        textMessage = "From "+source
+        debugPrint("File Delete Error %s" % textMessage )
+
+
+
+def autoSync(optionName):
+    global userHome
+    global googleDriveFolder
+    global mask
+    global notifier
+    global wm
+    global watcherGoogleDrive
+    global excludeFilter
+    
+    watcherItems = len(watcherGoogleDrive)
+
+    if optionName=='start':
+      # Create watcher for Google Drive folder
+      if watcherItems == 0:
+        watcherGoogleDrive=wm.add_watch(googleDriveFolder, mask, rec=True, exclude_filter=excludeFilter , auto_add=True)
+        debugPrint("New Watcher started ID: %d" % watcherGoogleDrive[googleDriveFolder])
+
+
+    if optionName=='stop':
+      # Count watched folders
+      debugPrint("Number of Watchers active on stop: %s" % watcherItems)
+      if watcherItems > 0:
+        # Remove watchers for each folder in dictionary
+        for indexName, indexValue in watcherGoogleDrive.iteritems():
+          watchFolder = indexName
+          wm.rm_watch(watcherGoogleDrive[indexName], rec=True)
+          #wm.rm_watch(watcherGoogleDrive[googleDriveFolder], rec=True)
+          # Then delete (overkill maybe) to really stop watcher
+          #wm.del_watch(watcherGoogleDrive[indexName])
+          debugPrint("Stopped Watcher ID: %d" % watcherGoogleDrive[indexName])
+        debugPrint("------------- All watchers Removed")
+        
+
+def checkGriveStatus():
+	# Check grive PID to determine if it is active
+    checkGrivePidProc = subprocess.Popen('pgrep -x grive', shell=True, stdout=subprocess.PIPE).stdout
+    checkGrivePid = checkGrivePidProc.read()
+    if checkGrivePid != '' :
+      debugPrint("[Warning] Grive is running PID: %s" % checkGrivePid)
+      return True	
+    else:
+      return False
+
+def syncNow(widget, optionName):
+    global googleDriveFolder
+    global syncNowButtonLabel
+    global syncNowButtonOn
+    
+    # Disable Button now and global for onConnection timer
+    syncNowButtonOn = False
+    widget.set_sensitive(syncNowButtonOn)
+    # Set Label now and global for onConnection timer
+    syncNowButtonLabel = 'Sync in progress...'
+    widget.set_label(syncNowButtonLabel)     
+    
+    # Make sure Grive instance is not running
+    if checkGriveStatus():
+      # Ignore sync and return without doing sync if Grive is running
+      #sendmessage('Google Drive', "Sync in progress...")
+      debugPrint("[Notice] Sync request skipped Sync in progress...")
+      return
+
+    # Grive not running so good to go
+    syncError = "none"
+
+    # Stop Animation 
+    stopTimer(timerConnectAnimation)
+    # Switch Icon sync animation ON 
+    onConnectAnimate()
+    # Change Working directory to Google Drive folder
+    try:
+        os.chdir(googleDriveFolder)
+    except:
+        syncError = _('Google Drive Folder Missing. Run Grive Setup.')
+        sendmessage('Google Drive', _('Sync Error - ')+syncError)
+        ### TODO Serious error if google drive not present so do something here to help user fix problem
+        return False
+    # Run Grive if no errors
+    try:
+        sendmessage('Google Drive', _('Synchronizing...'))
+        proc = subprocess.Popen(['grive', '-l', lastSyncLogFile], stdout=subprocess.PIPE)
+        # To find out if Grive is done we use the onConnection function
+
+    except:
+        syncError = _('See last log file for details')
+        sendmessage('Google Drive', _('Sync Failed - ')+syncError)
+        # Set Label
+        menu_last_sync.set_label(_('Last Sync failed'))
+        return False
+
+    # rest of checking is done in onConnection and  
+       
+    return True
+
+
+def toggleAutoSync(widget, optionName):
+    isActive=widget.get_active()
+    if isActive:
+      autoSync('start')
+      sendmessage('Google Drive', _('Auto Sync ON'))
+    else:
+      autoSync('stop')
+      sendmessage('Google Drive', _('Auto Sync OFF'))
+
+
+def toggleAutoStart(widget, optionName):
+    isActive=widget.get_active()
+    if isActive:
+      copyFile(autoStartSource, autoStartDestination)
+      #sendmessage('Google Drive', 'Autostart ON')
+    else:
+      deleteFile(autoStartDestination)
+      #sendmessage('Google Drive', 'Autostart OFF')
+
+
+def traceStdOut(proc):
+    while proc.poll() is None:
+        debugPrint("start traceStdOut")
+        line = proc.stdout.readline()
+        debugPrint("stop traceStdOut: %s  \r" % (line))
+        if line:
+            debugPrint("Trace stdOut: %s  " % (line))
+
+
+def writeTimeStamp():
+	  # Get Timestamp in UTF
+    nowT = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # Write timestamp to logfile
+    writeToFile(logFile, nowT, 'w')
+
+
+def checkInternetConnection(targetUrl):
+    try:
+        response=urllib2.urlopen(targetUrl, timeout=2)
+        debugPrint("+++ Internet Connected")
+        return True
+    except urllib2.URLError:
+        debugPrint("--- Not Connected")
+        return False
+    except:
+        debugPrint("--- Timeout Error - Not Connected")
+        return False
+
+def onConnection():
+    # This gets triggered by timer every 10sec
+    global menu
+    global ind
+    global googleDriveFolder
+    global watcherGoogleDrive
+    global connectionStatus
+    global syncNowButtonOn
+    global syncNowButtonLabel
+    
+    key = 'autosync'
+
+
+    if checkInternetConnection('http://drive.google.com'):
+      # ONLINE
+ 
+      # Activate Sync Now options
+      # Check if Grive is busy on every loop
+      # This is the only way to monitor grive
+      if syncNowButtonOn == False:
+        # Check if Grive is still running
+        if checkGriveStatus():
+          syncNowButtonOn = False
+          syncNowButtonLabel = _('Sync in progress...')
+        else:
+          syncNowButtonOn = True
+          syncNowButtonLabel = _('Sync Now')
+          sendmessage('Google Drive', _('Sync Complete'))
+          stopTimer(timerConnectAnimation)
+          writeTimeStamp()
+          menu_last_sync.set_label(readLastSync("widget", "onConnection"))
+        
+	
+	    # Button active stop animations	  
+      if syncNowButtonOn == True:
+        # Stop animation
+        stopTimer(timerConnectAnimation)
+        # Set icon
+        ind.set_icon(icon_path)
+		
+      menu_sync_now.set_sensitive(syncNowButtonOn)
+      menu_sync_now.set_label(syncNowButtonLabel)
+      # Activate other menu options
+      menu_auto_sync.set_sensitive(True)
+      menu_open_gdrive_web.set_sensitive(True)
+      menu_help.set_sensitive(True)
+      # Set status
+      connectionStatus = True
+      # Reset Auto Sync if reconnected internet happens and autosync active but offline
+      #autoSync('start')
+
+    # OFFLINE
+    else:
+      # If animation running stop animation
+      stopTimer(timerConnectAnimation)
+      # Set sleep icon
+      ind.set_icon(icon_path_sleep)
+      # deactivate buttons
+      menu_sync_now.set_sensitive(False)
+      menu_auto_sync.set_sensitive(False)
+      menu_open_gdrive_web.set_sensitive(False)
+      menu_help.set_sensitive(False)
+      menu_sync_now.set_label('Google Drive Offline')
+      # Set Status
+      connectionStatus = False
+
+      #autoSync('stop')
+
+    return True
+
+
+
+def connectAnimation(widget):
+    global seqNum
+    seqFile = 'grive-app-ind-con-'+str(seqNum)+'.svg'
+    #debugPrint("seqFile: %s" % seqFile)
+    ind.set_icon(os.path.join(installDir,'icons', themeStyle, seqFile))
+    if seqNum < 3 :
+      seqNum = seqNum + 1
+    else:
+      seqNum = 1
+    return True
+
+def stopConnectAnimation(widget):
+    # CD deavtivated Not used or needed stopTimer does job 
+    global ind
+    # stop animation sequence timer
+    GLib.source_remove(timerConnectAnimation)
+    # stop calling timer as well by returning False
+    return False
+
+
+def onConnectAnimate():
+    global timerConnectAnimation
+    timerConnectAnimation = GLib.timeout_add(666, connectAnimation, '')
+
+
+def openGdrive(widget, optionName):
+    global googleDriveFolder
+    startfile(googleDriveFolder)
+
+def openInBrowser(widget, url):
+    webbrowser.open_new(url)
+
+# callback def for all preferences to enable settings in gsettings
+# see dconf-editor > apps > grive-tools
+
+def on_my_setting_changed(settings, widget, key, check_button):
+    toggleStateSettings = settings.get_boolean(key)
+    check_button.set_active(toggleStateSettings)
+    # The keys could be checked every time used but below is to save proccessing
+    # use functions to check on update not the whole time
+    if key == 'theme':
+      # update themeStyle after preferences change
+      themeStyleUpdate()
+      # update icon paths
+      updateIconPaths()
+    if key == 'notifications':
+      # update notifications after change
+      notificationSettingUpdate()
+    if key == 'autosync' :
+      # update the main app indicator button state as well as
+      menu_auto_sync.set_active(toggleStateSettings)
+      # Toggle Autostart
+    if key == 'autostart' :
+      toggleAutoStart(autostart_check_button, autostart_check_button)
+
+
+
+def on_check_button_toggled(widget, button, settings, key):
+    # update dconf settings
+    toggleStateButton = button.get_active()
+    settings.set_boolean(key, toggleStateButton)		
+
+def closeWindow(widget, event, window):
+    # Close window
+    widget.destroy()
+
+
+def openPreferences(widget, optionName):
+
+    # GTK Preferences Window
+
+    # setup a check button and associate it with a GSettings key
+    global settings
+    global autostart_check_button
+    # Create Prefences window
+    preferencesWindow = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+    preferencesWindow.set_title(_('Google Drive Preferences - Grive Tools'))
+    preferencesWindow.set_icon(GdkPixbuf.Pixbuf.new_from_file(google_drive_icon_path))
+    preferencesWindow.set_border_width(24)
+    preferencesWindow.connect('delete-event', closeWindow, preferencesWindow)
+
+
+    ## Button definitions
+    # Autostart
+    optionName = _('Start Google Drive when you start your computer')
+    key = 'autostart'
+    # Create new button
+    autostart_check_button = Gtk.CheckButton(optionName)
+    # Set button active based on settings stored in gsettings
+    autostart_check_button.set_active(settings.get_boolean(key))
+    # Link gsettings action on toggle
+    settings.connect("changed::autostart", on_my_setting_changed, key, autostart_check_button)
+    # Link button actions on toggle
+    autostart_check_button.connect("toggled", on_check_button_toggled, autostart_check_button, settings, key)
+
+
+    # Auto Sync
+    optionName = _('Automatically synchronize Google Drive')
+    key = 'autosync'
+    # Create new button
+    autosync_check_button = Gtk.CheckButton(optionName)
+    # Set button active based on settings stored in gsettings
+    autosync_check_button.set_active(settings.get_boolean(key))
+    # Link gsettings action on toggle
+    settings.connect("changed::autosync", on_my_setting_changed, key, autosync_check_button)
+    # Link button actions on toggle
+    autosync_check_button.connect("toggled", on_check_button_toggled, autosync_check_button, settings, key)
+
+
+    # Notifications
+    optionName = _('Show On Screen Notifications')
+    key = 'notifications'
+    # Create new button
+    notifications_check_button = Gtk.CheckButton(optionName)
+    # Set button active based on settings stored in gsettings
+    notifications_check_button.set_active(settings.get_boolean(key))
+    # Link gsettings action on toggle
+    settings.connect("changed::notifications", on_my_setting_changed, key, notifications_check_button)
+    # Link button actions on toggle
+    notifications_check_button.connect("toggled", on_check_button_toggled, notifications_check_button, settings, key)
+
+
+    # Theme
+    optionName = _('Prefer Light Icon Theme')
+    key = 'theme'
+    # Create new button
+    theme_check_button = Gtk.CheckButton(optionName)
+    # Set button active based on settings stored in gsettings
+    theme_check_button.set_active(settings.get_boolean(key))
+    # Link gsettings action on toggle
+    settings.connect("changed::theme", on_my_setting_changed, key, theme_check_button)
+    # Link button actions on toggle
+    theme_check_button.connect("toggled", on_check_button_toggled, theme_check_button, settings, key)
+
+    # Check Storage Button
+    optionName = _(' Check storage... ')
+    # Create new button
+    check_storage_button = Gtk.Button(optionName)
+    check_storage_button.connect("clicked", openInBrowser, 'https://www.google.com/settings/storage')
+
+
+
+    ## Window Grid Layout
+
+    # Create Layout Grid
+    prefGrid = Gtk.Grid()
+    preferencesWindow.add(prefGrid)
+
+    # Add parent button to grid layout
+    prefGrid.add(autostart_check_button)
+    # Attach get more storage button
+    prefGrid.attach(check_storage_button, 2, 3, 1, 1)
+
+    prefGrid.attach_next_to(autosync_check_button, autostart_check_button, Gtk.PositionType.BOTTOM, 1, 1)
+
+    prefGrid.attach_next_to(notifications_check_button, autosync_check_button, Gtk.PositionType.BOTTOM, 1, 1)
+
+    prefGrid.attach_next_to(theme_check_button, notifications_check_button, Gtk.PositionType.BOTTOM, 1, 1)
+
+    # Add button to grid layout
+    #
+    #prefGrid.attach_next_to(notifications_check_button, autosync_check_button, Gtk.PositionType.BOTTOM, 1, 1)
+
+    # Add button to grid layout
+    # prefGrid.add(theme_check_button)
+
+    preferencesWindow.show_all()
+
+
+
+def openAbout(widget, optionName):
+    widget.set_sensitive(False)
+    aboutWindow=Gtk.AboutDialog()
+    aboutWindow.set_name('Grive Tools')
+    aboutWindow.set_version('Version '+appVersion)
+    aboutWindow.set_copyright('Copyright '+u'\u00a9'+' 2013-'+thisYear+'\nThe Fan Club')
+    aboutWindow.set_comments('Google Drive client with Grive and Grive Tools')
+    aboutWindow.set_license(''+
+'This program is free software: you can redistribute it and/or \n'+
+'modify it under the terms of the GNU General Public License as \n'+
+'published by the Free Software Foundation, either version 3 of \n'+
+'the License, or (at your option) any later version.\n\n'+
+'This program is distributed in the hope that it will be useful, \n'+
+'but WITHOUT ANY WARRANTY; without even the implied warranty \n'+
+'of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. \n'+
+'See the GNU General Public License for more details.\n\n'+
+'You should have received a copy of the GNU General Public License \n'+
+'along with this program.  If not, see http://www.gnu.org/licenses')
+    aboutWindow.set_website('http://www.thefanclub.co.za/how-to/ubuntu-google-drive-client-grive-and-grive-tools')
+    aboutWindow.set_website_label('www.thefanclub.co.za')
+    aboutWindow.set_authors(['Christiaan Diedericks', '\nSpecial thanks to:', 'Lorenzo Breda - Grive creator', 'Nestal Wan - GitHub Grive contributor', 'Sebastien Martini - Pyinotify creator', 'Google - Google Drive API', ' '])
+    aboutWindow.set_translator_credits(u'Christiaan Diedericks - Afrikaans \nJos\u00e9 A. Alonso - Spanish \nMaximilian Gro\u00dfe - German \nVitalD - Russian \nJean-S\u00e9bastien Beaulieu - French\nLuca Chiodini - Italian\nThomas Hansen - Portuguese\nJorge Pinto - Brazilian Portuguese\nMohammad Jolani - Arabic\nHirohisa Kawase - Japanese\nDieuwke Hupkes - Dutch\nDu\u0161an Spasi\u0107 - Serbian\nPetr Kub\u00e1nek - Czech\nPiotr  Strebski - Polish \nLuc\u00e1\u0161 Kr\u00e1l - Slovak \nAbhimanyu Shekhar - Hindi \nNurzhan - Kazakh \nZdravko Lambov- Bulgarian \nHenrik Holst - Swedish \nOrestis Chatziioanidis - Greek \nP\u00e9ter P\u00e9nzes - Hungarian\nSung Min Lee - Korean \nPeter Chu - Chinese\nAbdul Muhaimin - Malay\nManish Sainju - Nepali')
+    aboutWindow.set_logo(GdkPixbuf.Pixbuf.new_from_file(google_drive_icon_path))
+    aboutWindow.set_icon(GdkPixbuf.Pixbuf.new_from_file(google_drive_icon_path))
+    aboutWindow.set_program_name('Grive Tools')
+    aboutWindow.run()
+    aboutWindow.destroy()
+    widget.set_sensitive(True)
+
+def set_proc_name(newname):
+    from ctypes import cdll, byref, create_string_buffer
+    libc = cdll.LoadLibrary('libc.so.6')
+    buff = create_string_buffer(len(newname)+1)
+    buff.value = newname
+    libc.prctl(15, byref(buff), 0, 0, 0)
+
+def iconToggle():
+    # Toggle Icon to ACTIVE state in color
+    ## Not used but one way to switch icons with timeout calling this
+    global ind
+    global iconState
+    if iconState == 'off':
+      ind.set_icon(icon_path_active)
+      iconState = 'on'
+      # return false to kill timer
+      return False
+
+    if iconState == 'on':
+      ind.set_icon(icon_path)
+      iconState = 'off'
+      # return false to kill timer
+      return False
+
+def iconOff():
+    global ind
+    global iconState
+    ind.set_icon(icon_path_sleep)
+
+
+def debugPrint(textToPrint):
+    if verboseDebug:
+      print textToPrint
+
+def updateIconPaths():
+    global icon_path
+    global icon_path_sleep
+    global connectionStatus
+    
+    icon_path = os.path.join(installDir,'icons', themeStyle, 'grive-app-ind.svg')
+    icon_path_sleep = os.path.join(installDir, 'icons', themeStyle, 'grive-app-ind-sleep.svg')
+    # Set new icon based on last online check 
+    if connectionStatus:
+      ind.set_icon(icon_path)
+    else:
+      ind.set_icon(icon_path_sleep)
+
+def themeStyleUpdate():
+    global themeStyle
+    # Read defaults from dconf Settings
+    try:
+        themeSetting = settings.get_boolean("theme")
+    except:
+        themeSetting = 'dark';
+
+    if themeSetting :
+      theme = 'light'
+    else:
+      theme = 'dark'
+    themeStyle = theme
+
+def notificationSettingUpdate():
+    global notificationSetting
+    # Read defaults from dconf Settings
+    try:
+        notificationSetting = settings.get_boolean("notifications")
+    except:
+        notificationSetting = True 
+
+def renderMenu():
+    global menu
+    global menu_last_sync
+    global menu_sync_now
+    global menu_auto_sync
+    global menu_open_gdrive_web
+    global menu_help
+    global settings
+
+    # Menu Items
+    optionName=_('Sync Now')
+    #menu_sync_now = Gtk.ImageMenuItem(optionName)
+    menu_sync_now = Gtk.MenuItem(optionName)
+    menu_sync_now.connect("activate", syncNow, optionName)
+    menu_sync_now.set_use_underline(True)
+    menu_sync_now.set_sensitive(False)
+    # Menu item icon
+    #menu_sync_now.set_image(Gtk.Image.new_from_file(icon_path_sync_white))
+    #menu_sync_now.set_always_show_image(True)
+    menu_sync_now.set_label(_('Connecting...'))
+    menu.append(menu_sync_now)
+
+
+    optionName=_('Last Sync')
+    menu_last_sync = Gtk.MenuItem(optionName)
+    menu_last_sync.connect("activate", readLastSync, optionName)
+    menu_last_sync.set_label(readLastSync("activate", optionName))
+    menu_last_sync.set_sensitive(False)
+    menu.append(menu_last_sync)
+
+    menu.append(Gtk.SeparatorMenuItem.new())
+
+    optionName=_('Auto Sync')
+    key = 'autosync'
+    menu_auto_sync = Gtk.CheckMenuItem(optionName)
+    menu_auto_sync.connect("activate", toggleAutoSync, optionName)
+    settings.connect("changed::autostart", on_my_setting_changed, key, menu_auto_sync)
+    # Link button actions on toggle
+    menu_auto_sync.connect("toggled", on_check_button_toggled, menu_auto_sync, settings, key)
+    # Set active based on settings key value
+    menu_auto_sync.set_active(settings.get_boolean(key))
+    # Add menu item
+    menu.append(menu_auto_sync)
+
+    menu.append(Gtk.SeparatorMenuItem.new())
+
+    optionName=_('Open Google Drive Folder')
+    menu_open_gdrive = Gtk.MenuItem(optionName)
+    menu_open_gdrive.set_use_underline(True)
+    menu_open_gdrive.connect("activate", openGdrive, optionName)
+    menu.append(menu_open_gdrive)
+
+    optionName=_('Visit Google Drive on the web')
+    menu_open_gdrive_web = Gtk.MenuItem(optionName)
+    menu_open_gdrive_web.set_use_underline(True)
+    menu_open_gdrive_web.connect("activate", openInBrowser, 'https://drive.google.com')
+    menu.append(menu_open_gdrive_web)
+
+    menu.append(Gtk.SeparatorMenuItem.new())
+
+    optionName=_('Preferences')
+    menu_preferences = Gtk.MenuItem(optionName)
+    menu_preferences.set_use_underline(True)
+    menu_preferences.connect("activate", openPreferences, optionName)
+    menu.append(menu_preferences)
+
+    optionName=_('Help')
+    menu_help = Gtk.MenuItem(optionName)
+    menu_help.set_use_underline(True)
+    menu_help.connect("activate", openInBrowser, 'https://support.google.com/drive')
+    menu.append(menu_help)
+
+    optionName=_('About')
+    menu_about = Gtk.MenuItem(optionName)
+    menu_about.set_use_underline(True)
+    menu_about.connect("activate", openAbout, optionName)
+    menu.append(menu_about)
+
+    menu.append(Gtk.SeparatorMenuItem.new())
+
+    optionName=_('Quit')
+    menu_quit = Gtk.MenuItem(optionName)
+    menu_quit.connect("activate", quitApplication, optionName)
+    menu.append(menu_quit)
+
+    menu.show_all()
+
+    ind.set_icon(icon_path)
+    ind.set_attention_icon(icon_path_active)
+
+    ind.set_menu(menu)
+
+
+
+
+def installDialog():
+	# Install Dialog if Setup has not been run before
+  dialog = Gtk.MessageDialog(None, 0, Gtk.MessageType.INFO,
+             Gtk.ButtonsType.OK_CANCEL, _('Google Drive Indicator - Setup Required'))
+  dialog.set_default_size(400, 250)
+  dialog.format_secondary_text(_('Before you can use the Google Drive Indicator you need to \nsetup and authenticate your Google Drive Folder.\n\n Click Ok to run Grive Setup now, or Cancel to quit'))
+  response = dialog.run()
+	
+  if response == Gtk.ResponseType.OK:
+    # Launch Grive Setup
+    proc = subprocess.Popen(['/bin/bash', os.path.join(installDir,'grive-setup')], stdout=subprocess.PIPE)
+    proc.wait()
+
+  elif response == Gtk.ResponseType.CANCEL:
+    debugPrint("Cancel selected - Quiting")
+
+  dialog.destroy() 
+    
+############################# Main Loop
+#
+
+if __name__ == "__main__":
+  
+  # Set running process title using libc
+  set_proc_name('grive-indicator')
+  
+  # Lock File
+  try:
+      lockFile = open('/tmp/grive-indicator.lock','w')
+	    # Try to aquire lock
+      fcntl.flock(lockFile, fcntl.LOCK_EX|fcntl.LOCK_NB)
+      # File has not been locked before 
+      fileIsLocked = False
+  except:
+      # File is already locked
+      fileIsLocked = True
+	  
+  if fileIsLocked: 
+	sys.exit('Grive Indicator instance already running')
+	
+  lockFile.write('%d\n'%os.getpid())
+  lockFile.flush()
+  
+    
+  # Create Application Indicator
+  ind = appindicator.Indicator.new (
+                        "google-drive",
+                        "indicator-messages",
+                        appindicator.IndicatorCategory.APPLICATION_STATUS)
+  ind.set_status (appindicator.IndicatorStatus.ACTIVE)
+
+  # Vars
+  BASE_KEY = "apps.grive-indicator"
+  settings = Gio.Settings.new(BASE_KEY)
+
+  # dconf variables defaults and loaded settings
+  themeStyleUpdate()
+  
+  notificationSettingUpdate()
+  
+  try:
+      verboseDebug =  settings.get_boolean("debug")
+  except:
+      verboseDebug = False
+
+  # Main Env Vars
+  appVersion = '1.15 beta'
+  appName = 'grive-indicator'
+  userHome = os.getenv("HOME")
+  googleDrive = "Google Drive"
+  googleDriveFolder = os.path.join(userHome,googleDrive)
+  installDir = "/opt/thefanclub/grive-tools/"
+  logFile = os.path.join(userHome,'.grive-sync.log')
+  lastSyncLogFile = os.path.join(userHome,'.grive-last-sync.log')
+  streamLog = os.path.join(userHome,'.grive-stream.log')
+  localeDir = '/usr/share/locale'
+
+  currentLocale = locale.getlocale()
+  debugPrint("Current Locale : %s" % str(currentLocale))
+  
+  # Load translation if possible
+  try:
+    appTranslate = gettext.translation(appName, localeDir, fallback = True)
+    _ = appTranslate.ugettext
+
+  except Exception as e:
+    print(e)
+    _ = str
+  
+
+  autoStartSource = os.path.join(installDir,'grive-indicator-autostart.desktop')
+  autoStartDestination = os.path.join(userHome, '.config', 'autostart', 'grive-indicator-autostart.desktop')
+  
+  # If no .grive file in the Google Folder at this point start grive setup and exit
+  griveCheck = os.path.isfile(os.path.join(googleDriveFolder,'.grive'))
+  if griveCheck == False :
+	  installDialog()
+	  os._exit(0)
+     
+  # Placeholder vars
+  menu_last_sync = ''
+  menu_sync_now = ''
+  menu_auto_sync = ''
+  autostart_check_button = ''
+  menu_open_gdrive_web = ''
+  menu_help = ''
+  eventItemNow = ''
+  onMaybeDoneTimer = 0
+  timerConnectAnimation = 0
+  timerStopConnectAnimation = 0
+  iconState = 'off'
+  seqNum = 1
+  thisYear = datetime.datetime.now().strftime("%Y")
+
+  
+  
+  # Make sure Grive instance is not running
+  if checkGriveStatus():
+    syncNowButtonOn = False
+    syncNowButtonLabel = _('Sync in progress...')
+  else:
+    syncNowButtonOn = True
+    syncNowButtonLabel = _('Sync Now')
+  
+  # Check online status at startup then via timer every 10sec see timerInternetAccess
+  #connectionStatus = checkInternetConnection('http://drive.google.com')
+  connectionStatus = False
+  
+  # Icon Paths
+  google_drive_icon_path = os.path.join(installDir,'icons/google-drive-128.png')
+  thefanclub_icon_path = os.path.join(installDir,'icons/TheFanClub-128.png')
+  icon_path_active = os.path.join(installDir, 'icons', 'grive-app-ind-active.png')
+  
+  
+  # Startup Connection Animation
+  onConnectAnimate()
+
+  # Update Themed Icon Paths based on connection status
+  icon_path = ''
+  icon_path_sleep = ''  
+  updateIconPaths()
+
+  # pynotify vars
+
+  excl_lst = ['^/\.grive',
+              '^/\.grive*',
+              '^/\.grive_state',
+              '^/.grive',
+              '^grive',
+              '^\.grive_state',
+              '^/.grive_state',
+              '^grive_state']
+
+  excludedFiles = ['.grive', '.grive~', '.grive_state', '.grive_state~' ]
+
+  wm = pyinotify.WatchManager()
+  excludeFilter = pyinotify.ExcludeFilter(excl_lst)
+
+  notifier = pyinotify.AsyncNotifier(wm, PTmp(), read_freq=1) #### MAGIC NUMBER HERE to slow down notifier polling of events 0=realtime
+  mask = pyinotify.IN_DELETE | pyinotify.IN_CREATE | pyinotify.IN_MODIFY | pyinotify.IN_MOVED_FROM
+  watcherGoogleDrive = ''
+
+  # Notifier start not needed for async notifier
+
+  loop_thread = threading.Thread(target=asyncore.loop, name="Asyncore Loop" )
+  #loop_thread = Process(target=notifier.loop, name="Asyncore Loop", kwargs = {'timeout':1})
+  # If you want to make the thread a daemon
+  # loop_thread.daemon = True
+  loop_thread.start()
+
+  # Timers
+  timerOne = GLib.timeout_add(10000, onTimer)
+  timerAsync = GLib.timeout_add(1000, joinTreads)
+  timerInternetAccess = GLib.timeout_add(10000, onConnection)
+
+
+  # Create Menu
+  menu = Gtk.Menu()
+
+  # Render menu items
+  renderMenu()
+
+  #asyncore.loop(timeout=5)
+
+  # Start GTK Main
+  Gtk.main()
+
+
