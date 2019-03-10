@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Exec=/opt/thefanclub/grive-tools/grive-indicator 
+Icon=/opt/thefanclub/grive-tools/GoogleDrive.png
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Google Drive
+GenericName=google-drive
+X-GNOME-FullName=Google Drive
+Comment=Google Drive Indicator shortcut

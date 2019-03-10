@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.15 beta
+Name=Grive Setup
+Name[pl]=Ustawienia Grive
+GenericName=Grive Setup
+GenericName[pl]=Ustawienia Grive
+X-GNOME-FullName=Grive Setup
+X-GNOME-FullName[pl]=Ustawienia Grive
+Comment=Google Drive Client setup using Grive and Grive Tools
+Comment[pl]=Ustawienia klienta Dysku Google używającego Grive i Narzędzi Grive
+Exec=/bin/bash /opt/thefanclub/grive-tools/grive-setup
+Terminal=false
+Icon=/opt/thefanclub/grive-tools/grive.png
+Type=Application
+Categories=Utility;
+TargetEnvironment=Unity

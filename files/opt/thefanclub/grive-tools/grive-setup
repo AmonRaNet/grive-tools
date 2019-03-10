@@ -1,0 +1,227 @@
+#!/bin/bash
+#
+# Linux Grive Setup
+#  
+# Version :  1.15 beta 
+#
+# By The Fan Club 2014 
+# http://www.thefanclub.co.za 
+#    
+echo 
+echo "*** Linux Grive Setup by The Fan Club"
+echo          
+echo "* NOTE: This program sets up Google Drive client with Grive and Grive Tools"
+echo
+echo "* NOTE: Before you will be able to run  this script you will need to"
+echo "        make it executable : sudo chmod +x /path/to/script/grive-setup" 
+echo "* NOTE: Run this script with: /opt/thefanclub/grive-tools/grive-setup"
+echo
+echo "* DISCLAIMER: This script is provided purely for testing use. Use at own risk."
+echo
+# Locales for translation
+export TEXTDOMAIN=grive-setup
+export TEXTDOMAINDIR="/usr/share/locale"
+# Set English as Shell output language
+#LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+
+# Local Variables
+tfcName="Grive Setup"  
+tfcVersion="v1.14 beta"
+userName=$(eval echo $SUDO_USER) 
+userHome=$(eval echo ~${SUDO_USER})
+installDir="/opt/thefanclub/grive-tools"
+logDay=$(date '+%Y-%m-%d')
+logTime=$(date '+%Y-%m-%d %H:%M:%S')
+logFile="$userHome/.grive-setup.log"
+linuxVerIdT=$(cat /etc/lsb-release | awk 'BEGIN {FS="DISTRIB_ID="} {print $2;}') 
+linuxVerId=$(echo $linuxVerIdT)
+linuxVerT=$(cat /etc/lsb-release | awk 'BEGIN {FS="DISTRIB_CODENAME="} {print $2;}') 
+linuxVer=$(echo $linuxVerT)
+linuxVerNumT=$(cat /etc/lsb-release | awk 'BEGIN {FS="DISTRIB_RELEASE="} {print $2;}') 
+linuxVerNum=$(echo $linuxVerNumT)
+kernelVer=$(uname -r | cut -d"." -f1,2)
+
+# Google Drive
+gdriveName="Google Drive"
+googleDriveAuthUrl="https://accounts.google.com/o/oauth2/auth?scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fdocs.google.com%2Ffeeds%2F+https%3A%2F%2Fdocs.googleusercontent.com%2F+https%3A%2F%2Fspreadsheets.google.com%2Ffeeds%2F&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&client_id=22314510474.apps.googleusercontent.com"
+googleDriveFolder="$userHome/Google Drive"
+
+# Make sure app indicator is not running before we start
+# Try to aquire lock echo True 
+if [ -f /tmp/grive-indicator.lock ]
+then
+  checkFlock=$(flock -xn /tmp/grive-indicator.lock -c 'echo True' 2>/dev/null )
+  if [ ! "$checkFlock" = 'True' ]
+    then
+     # Kill proccess if running
+     pkill grive-indicator
+     # Changed to pkill because fuser killed grive-setup as well when called from indicator
+     #fuser -vk /tmp/grive-indicator.lock 
+  fi
+fi
+
+
+# Start of main Zenity code ##
+zenButton=$"Next"
+(
+echo "$logTime [GTI] *** $tfcName $tfcVersion - Setup started." >> $logFile
+echo "$logTime [GTI] Linux ID: $linuxVerId" >> $logFile
+echo "$logTime [GTI] Linux Version: $linuxVerNum" >> $logFile
+echo "$logTime [GTI] Linux Kernel: $kernelVer" >> $logFile
+
+## Check if Google Drive folder exists
+echo "25"; sleep 1
+echo $"# Check if Google Drive folder exists."
+echo "$logTime [GTI] Check if Google Drive folder exists..." >> $logFile
+
+if [ -d "$googleDriveFolder" ]
+  then
+    # Google Drive Exists
+    zenity  --question  --title="The Fan Club - $tfcName $tfcVersion" --text=$"<big><b>A Google Drive Folder exists in your home folder.</b></big>\n\nDo you want to delete and re-install the Google Drive folder ?" --width=500 --ok-label=$"Yes" --cancel-label=$"No"
+      if [ "$?" -eq "0" ]   
+        then 
+          # Delete Google Drive Folder
+          rm -R "$googleDriveFolder"
+          echo "$logTime [GTI] Google Drive Folder deleted" >> $logFile
+          echo $"# Google Drive Folder deleted"
+          # Create Google Drive Folder
+          mkdir "$googleDriveFolder" 
+          echo $"# Google Drive Folder created"
+          echo "$logTime [GTI] Google Drive Folder created" >> $logFile
+      fi
+  else
+  # Create Google Drive Folder
+  mkdir "$googleDriveFolder" 
+  echo $"# Google Drive Folder created"
+  echo "$logTime [GTI] Google Drive Folder created" >> $logFile
+fi
+
+
+# Set Folder Icon
+#gvfs-set-attribute -t string "$googleDriveFolder" metadata::custom-icon file://$installDir/GoogleDrive.png
+
+# Change to folder for auth
+cd "$googleDriveFolder"
+
+
+# Google Login and Authentication
+echo "50"; sleep 1
+echo $"# Google Login and Authentication"
+echo "$logTime [GTI] Google Login and Authentication..." >> $logFile
+zenity  --question  --title="The Fan Club - $tfcName $tfcVersion" --text=$"<big><b>Sign in to Google Drive</b></big>\n\nA browser window will now open to sign in to your Google Account and allow Grive access to your Google Drive.\n\n<b>You will be given a token to copy and paste into the box provided on the next screen.</b>" --width=500 --ok-label=$"Next" --cancel-label=$"Cancel"
+  if [ "$?" -eq "1" ]   
+    then
+      # Exit
+      zenity --warning --text=$"<big><b>Installation cancelled</b></big>\n\nThis application will now close." --title="The Fan Club - $tfcName" --width=500 --ok-label=$"Ok" 
+      echo "$logTime [GTI] Installation cancelled." >> $logFile
+      exit        
+  fi
+
+# Open Google Login and Auth page in default browser
+echo $"# Opening Google Login Page..."
+/usr/bin/xdg-open "$googleDriveAuthUrl" &
+
+# Google Drive Token Entry
+echo "70"; sleep 1
+echo $"# Google Drive Token Entry"
+echo "$logTime [GTI] Google Drive Token Entry" >> $logFile
+googleAuthToken=$( zenity  --entry  --title="The Fan Club - $tfcName $tfcVersion" --text=$"Enter Google Drive Code:\n\nCopy and paste the code from your browser window to the box below" --width=500 --ok-label=$"Next" --cancel-label=$"Cancel" )
+  if [ "$?" -eq "1" ]   
+    then
+      # Exit
+      zenity --warning --text=$"<big><b>Installation cancelled</b></big>\n\nThis application will now close." --title="The Fan Club - $tfcName" --width=500 --ok-label=$"Ok" 
+      echo "$logTime [GTI] Installation cancelled." >> $logFile
+      exit        
+  fi
+
+
+# Google Drive Authentication
+echo "80"; sleep 1
+echo $"# Google Drive Authentication"
+echo "$logTime [GTI] Google Drive Authentication" >> $logFile
+syncText=$"Synchronizing..."
+notify-send -i $installDir/GoogleDrive.png "$gdriveName" "$syncText"
+echo $"# Google Drive Synchronizing..."
+# open Google Drive folder to watch during sync in background
+/usr/bin/xdg-open "$googleDriveFolder" &
+
+# Use expect session to enter token on command line spawn of the grive -a command MAGIC CODE
+expect <<- DONE
+  set timeout -1
+  spawn grive -a
+  expect "here:"
+  send -- "$googleAuthToken"
+  send -- "\r"
+  expect eof
+DONE
+
+# flush token var
+googleAuthToken=""
+
+# Syncing Google Drive Folder
+syncText=$"First Sync Complete"
+notify-send -i $installDir/GoogleDrive.png "$gdriveName" "$syncText"
+
+echo "90"; sleep 1
+echo $"# Google Drive Sync Done"
+echo "$logTime [GTI] Google Drive Sync Done" >> $logFile
+
+# Check if Google Drive Synced
+#if [ -f "$googleDriveFolder/.grive_state" ] && [ -f "$googleDriveFolder/.grive" ]
+if [ -f "$googleDriveFolder/.grive" ]
+then
+    # All Good files exist install seems fine
+    echo "$logTime [GTI] Installation completed." >> $logFile
+    echo $"# Installation completed."
+    # Copy Google Drive indicator autostart shortcut into place
+    if [ ! -d "$userHome/.config/autostart" ]
+    then
+        mkdir $userHome/.config/autostart
+        chown $userName $userHome/.config/autostart
+    fi
+    cp $installDir/grive-indicator-autostart.desktop $userHome/.config/autostart/grive-indicator-autostart.desktop
+    chown $userName $userHome/.config/autostart/grive-indicator-autostart.desktop
+    chmod +x $userHome/.config/autostart/grive-indicator-autostart.desktop
+    # Start Application Indicator - removed because not working 13.10
+    #su $userName -c "/usr/bin/python $installDir/grive-indicator &"
+    
+    # All done
+    echo "99"; sleep 1
+    zenity --info --text=$"<big><b>Installation Complete</b></big>\n\nYour Google Drive can be found in your Home folder.\n\n" --title="The Fan Club - $tfcName" --ok-label=$"Done" --width=500
+  else
+    # Something went wrong in the end and files did not sync
+    echo "$logTime [GTI] Installation error. Google Drive did not Sync." >> $logFile
+    echo $"# Installation error. Google Drive did not Sync."
+    # Exit
+    zenity --warning --text=$"<big><b>Installation error</b></big>\n\nGoogle Drive did not Sync.\n\nRun Grive Setup again" --title="The Fan Club - $tfcName" --width=500 --ok-label=$"Ok" 
+ 
+fi            
+
+
+
+# All Done
+echo "$logTime [GTI] All Done" >> $logFile
+echo "100"; sleep 1
+echo $"# $tfcName completed"
+# End of Main Zenity Code #
+) | zenity --progress \
+           --title "The Fan Club - $tfcName $tfcVersion" \
+           --text=$"Initialising $tfcName" \
+           --auto-close \
+           --width=500 \
+           --ok-label=$"Done" \
+           --cancel-label=$"Cancel"
+
+# Check if Cancel was pressed  
+if [ "$?" -eq "1" ]   
+  then
+    zenity --warning --text=$"<big><b>Installation cancelled</b></big>\n\nThis application will now close." --title="The Fan Club - $tfcName" --width=500 --ok-label=$"Ok" 
+                    echo "$logTime [GTI] Installation cancelled." >> $logFile
+    exit
+fi
+
+# All Done
+      
+
+exit

@@ -1,0 +1,21 @@
+Grive Tools 1.6 Beta
+--------------------
+Grive Tools will assist in the installation and setup of Google Drive on your Ubuntu desktop. 
+Grive Tools consists of the following components:
+Grive Setup - The main setup installation program to get started.
+Grive Indicator - Application indicator for Google Drive. 
+A GUI installation will guide you through the the installation process and setup Google Drive in your home folder.
+You will be able to access your Google Drive files locally* as well as synchronize your files with your Google Drive online. (* excluding Google Docs)
+Auto Sync - Grive Tools keeps your Google Drive synchronized automatically by detecting changes in your local Google Drive folder. New files and folders will be uploaded to your Google Drive automatically after a few seconds. 
+The Grive Application Indicator supports both light and dark desktop themes.
+On Screen notifications of Google Drive activity.
+
+Installation
+------------
+launch grive-setup from the dash menu after install or from command line with : /opt/thefanclub/grive-tools/grive-setup
+
+Support
+-------
+Project Homepage can be found at : http://www.thefanclub.co.za/how-to/ubuntu-google-drive-client-grive-and-grive-tools
+
+ -- The Fan Club<info@thefanclub.co.za>  Tue, 25 Feb 2014 22:22:22 +0200
