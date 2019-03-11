@@ -3,20 +3,41 @@
 This is fork of The Fan Club grive-tools (base version 1.15).
 Mainly was created to build debian package for Ubuntu 18.04.
 
-# How to use
+# How to
 
-Requires:
-- make
-- checkinstall
+## Install
 
 ```bash
-# mannual install/uninstall
 make install
-make uninstall
-# create deb package
-make debian
 ```
- 
+
+Requires:
+- dconf-gsettings-backend or gsettings-backend
+- libnotify-bin
+- python
+- python-pyinotify
+- zenity
+- expect
+- grive (>= 0.3)
+- libappindicator1
+- libappindicator3-1
+- gir1.2-appindicator3-0.1
+
+
+## Uninstall
+
+```bash
+make uninstall
+```
+## Create debian package
+
+```bash
+create_debian_package
+```
+
+Requires:
+- docker
+
 # Original description (The Fan Club)
 Grive Tools will assist in the installation and setup of Google Drive on your Ubuntu desktop.
 
@@ -36,4 +57,3 @@ You will be able to access your Google Drive files locally* as well as synchroni
 
 For more information and complete instructions visit the project home page:
 http://www.thefanclub.co.za/how-to/ubuntu-google-drive-client-grive-and-grive-tools
-

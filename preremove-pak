@@ -1,0 +1,25 @@
+#! /bin/bash -e
+
+# Set English as Shell output language
+LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+userName=$(eval echo $SUDO_USER)
+userHome=$(eval echo ~${SUDO_USER})
+
+if [ -f /tmp/grive-indicator.lock ]
+then
+   # Check if indicator is running
+   checkFlock=$(cat /tmp/grive-indicator.lock)
+
+   if [ ! "$checkFlock" = "" ]
+   then
+     kill $checkFlock 2>/dev/null || true
+     rm /tmp/grive-indicator.lock
+   fi
+fi
+if [ "$1" = "remove" ]; then
+  if [ -f  "$userHome/.config/autostart/grive-indicator-autostart.desktop" ]
+  then
+    rm  "$userHome/.config/autostart/grive-indicator-autostart.desktop"
+  fi
+fi
