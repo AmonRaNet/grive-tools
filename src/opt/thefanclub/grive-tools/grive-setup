@@ -44,8 +44,12 @@ kernelVer=$(uname -r | cut -d"." -f1,2)
 
 # Google Drive
 gdriveName="Google Drive"
-googleDriveAuthUrl="https://accounts.google.com/o/oauth2/auth?scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile+https%3A%2F%2Fdocs.google.com%2Ffeeds%2F+https%3A%2F%2Fdocs.googleusercontent.com%2F+https%3A%2F%2Fspreadsheets.google.com%2Ffeeds%2F&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&client_id=22314510474.apps.googleusercontent.com"
 googleDriveFolder="$userHome/Google Drive"
+if [ -d "$googleDriveFolder" ]; then
+  googleDriveAuthUrl="$(cd "$googleDriveFolder" && grive -a --print-url)"
+else
+  googleDriveAuthUrl="$(grive -a --print-url)"
+fi
 
 # Make sure app indicator is not running before we start
 # Try to aquire lock echo True 
