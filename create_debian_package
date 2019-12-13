@@ -1,0 +1,45 @@
+#!/bin/bash
+set -e
+
+version=$(git describe --tags --always)
+
+if [ ! -z $1 ]; then
+  target_dir="$(realpath $1)"
+else
+  target_dir="$( cd "$( dirname "." )" >/dev/null && pwd )"
+fi
+source_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+docker_source_dir=/tmp/grive-tools
+docker_target_dir=/tmp/grive-tools-debian
+docker_build_dir=/tmp/grive-tools-build
+
+echo "Version: $version"
+echo "Target: $target_dir"
+
+mkdir -p $target_dir
+docker run -it \
+       -v $source_dir:$docker_source_dir:ro \
+       -v $target_dir:$docker_target_dir:rw \
+       --entrypoint "/bin/bash" \
+       ubuntu:bionic \
+       -c "
+       set -e
+       apt update
+       apt install --assume-yes --no-install-recommends checkinstall
+       cp -R $docker_source_dir $docker_build_dir
+       cd $docker_build_dir
+       checkinstall \
+           --type=debian \
+           --maintainer='AmonRaNet \<amonra@ngs.ru\>' \
+           --nodoc \
+           --pkgname=grive-tools \
+           --pkgversion=$version \
+           --arch=all \
+           --default \
+           --pakdir=$docker_target_dir \
+           --instal=no \
+           --backup=no \
+           --replaces=grive-tools \
+           --requires='dconf-gsettings-backend \| gsettings-backend, libnotify-bin, python, python-pyinotify, zenity, expect, grive \(\>= 0.3\), libappindicator1, libappindicator3-1, gir1.2-appindicator3-0.1'
+       chown $(id -u):$(id -g) $docker_target_dir/grive-tools*.deb
+       "
