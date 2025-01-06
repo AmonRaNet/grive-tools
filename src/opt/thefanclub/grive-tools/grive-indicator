@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
 # Grive Indicator
 #
@@ -24,6 +24,7 @@
 
 import gi
 gi.require_version('Gtk', '3.0')
+gi.require_version('AppIndicator3', '0.1')
 from gi.repository import Gtk
 from gi.repository import Gio
 from gi.repository import GLib
@@ -35,13 +36,12 @@ import subprocess
 import time
 import datetime
 import shutil
-import urllib2
+from urllib.request import urlopen
 import webbrowser
 import pyinotify
 import asyncore
 import threading
 import fcntl
-import commands
 import gettext
 import locale
 
@@ -271,7 +271,7 @@ def autoSync(optionName):
 def checkGriveStatus():
 	# Check grive PID to determine if it is active
     checkGrivePidProc = subprocess.Popen('pgrep -x grive', shell=True, stdout=subprocess.PIPE).stdout
-    checkGrivePid = checkGrivePidProc.read()
+    checkGrivePid = checkGrivePidProc.read().decode("utf-8")
     if checkGrivePid != '' :
       debugPrint("[Warning] Grive is running PID: %s" % checkGrivePid)
       return True	
@@ -368,7 +368,7 @@ def writeTimeStamp():
 
 def checkInternetConnection(targetUrl):
     try:
-        response=urllib2.urlopen(targetUrl, timeout=2)
+        response=urlopen(targetUrl, timeout=2)
         debugPrint("+++ Internet Connected")
         return True
     except urllib2.URLError:
@@ -652,9 +652,9 @@ def openAbout(widget, optionName):
 def set_proc_name(newname):
     from ctypes import cdll, byref, create_string_buffer
     libc = cdll.LoadLibrary('libc.so.6')
-    buff = create_string_buffer(len(newname)+1)
-    buff.value = newname
-    libc.prctl(15, byref(buff), 0, 0, 0)
+    #buff = create_string_buffer(len(newname)+1)
+    #buff.value = newname
+    #libc.prctl(15, byref(buff), 0, 0, 0)
 
 def iconToggle():
     # Toggle Icon to ACTIVE state in color
@@ -681,7 +681,7 @@ def iconOff():
 
 def debugPrint(textToPrint):
     if verboseDebug:
-      print textToPrint
+      print(textToPrint)
 
 def updateIconPaths():
     global icon_path
@@ -851,7 +851,7 @@ if __name__ == "__main__":
       fileIsLocked = True
 	  
   if fileIsLocked: 
-	sys.exit('Grive Indicator instance already running')
+      sys.exit('Grive Indicator instance already running')
 	
   lockFile.write('%d\n'%os.getpid())
   lockFile.flush()
@@ -957,14 +957,14 @@ if __name__ == "__main__":
 
   # pynotify vars
 
-  excl_lst = ['^/\.grive',
-              '^/\.grive*',
-              '^/\.grive_state',
-              '^/.grive',
-              '^grive',
-              '^\.grive_state',
-              '^/.grive_state',
-              '^grive_state']
+  excl_lst = [r'^/\.grive',
+              r'^/\.grive*',
+              r'^/\.grive_state',
+              r'^/.grive',
+              r'^grive',
+              r'^\.grive_state',
+              r'^/.grive_state',
+              r'^grive_state']
 
   excludedFiles = ['.grive', '.grive~', '.grive_state', '.grive_state~' ]
 
@@ -999,5 +999,4 @@ if __name__ == "__main__":
 
   # Start GTK Main
   Gtk.main()
-
 
