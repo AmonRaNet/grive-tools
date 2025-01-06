@@ -1,7 +1,6 @@
 # Grive Tools - Ubuntu Google Drive desktop integration (custom packaging)
 
 This is fork of The Fan Club grive-tools (base version 1.15).
-Mainly was created to build debian package for Ubuntu 18.04.
 
 # How to
 
@@ -29,14 +28,6 @@ Requires:
 ```bash
 make uninstall
 ```
-## Create debian package
-
-```bash
-create_debian_package
-```
-
-Requires:
-- docker
 
 # Original description (The Fan Club)
 Grive Tools will assist in the installation and setup of Google Drive on your Ubuntu desktop.

@@ -11,10 +11,10 @@ install:
 	cp    src/usr/share/applications/grive-indicator.desktop  $(DESTDIR)usr/share/applications/
 	mkdir -p $(DESTDIR)usr/share/doc/
 	cp -R src/usr/share/doc/grive-tools $(DESTDIR)usr/share/doc/
+	mkdir -p $(DESTDIR)usr/share/glib-2.0/
 	mkdir -p $(DESTDIR)usr/share/glib-2.0/schemas/
 	cp    src/usr/share/glib-2.0/schemas/apps.grive-indicator.gschema.xml $(DESTDIR)usr/share/glib-2.0/schemas/
 	mkdir -p $(DESTDIR)usr/share/locale
-	cp -R src/usr/share/locale/* $(DESTDIR)usr/share/locale
 
 uninstall:
 	rm -R $(DESTDIR)opt/thefanclub
